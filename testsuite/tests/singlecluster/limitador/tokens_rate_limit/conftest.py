@@ -48,7 +48,7 @@ def paid_user_auth(paid_user_api_key):
 def backend(request, cluster, blame, label, testconfig):
     """Deploys LlmSim backend"""
     image = testconfig["llm_sim"]["image"]
-    llmsim = LlmSim(cluster, blame("llm-sim"), label, image)
+    llmsim = LlmSim(cluster, blame("llm-sim"), testconfig["llm_sim"]["model"], label, image)
     request.addfinalizer(llmsim.delete)
     llmsim.commit()
     return llmsim
@@ -111,6 +111,14 @@ def token_rate_limit(request, cluster, blame, module_label):
 
     return policy
 
+
+@pytest.fixture(scope="module")
+def basic_request(testconfig):
+    """Basic request for LLM Sim"""
+    return {
+        "model": testconfig["llm_sim"]["model"],
+        "messages": [{"role": "user", "content": "What is Kubernetes?"}],
+    }
 
 @pytest.fixture(scope="module", autouse=True)
 def commit(request, authorization, token_rate_limit):
