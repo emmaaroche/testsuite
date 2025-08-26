@@ -5,7 +5,6 @@ import pytest
 pytestmark = [pytest.mark.kuadrant_only, pytest.mark.limitador]
 
 
-
 @pytest.mark.parametrize("token_rate_limit", ["route", "gateway"], indirect=True)
 def test_free_tier_key(client, free_user_auth, basic_request):
     """Ensures a valid free-tier API key returns 200 OK"""

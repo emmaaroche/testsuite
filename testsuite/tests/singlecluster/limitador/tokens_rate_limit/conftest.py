@@ -120,6 +120,7 @@ def basic_request(testconfig):
         "messages": [{"role": "user", "content": "What is Kubernetes?"}],
     }
 
+
 @pytest.fixture(scope="module", autouse=True)
 def commit(request, authorization, token_rate_limit):
     """Commits policies"""
