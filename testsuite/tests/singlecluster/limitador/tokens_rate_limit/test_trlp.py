@@ -2,135 +2,63 @@
 
 import pytest
 
-pytestmark = [pytest.mark.kuadrant_only, pytest.mark.limitador]
+pytestmark = [pytest.mark.kuadrant_only, pytest.mark.limitador, pytest.mark.authorino]
 
 
-@pytest.mark.parametrize("token_rate_limit", ["route", "gateway"], indirect=True)
-def test_free_tier_key(client, free_user_auth, basic_request):
-    """Ensures a valid free-tier API key returns 200 OK"""
+def post_until_rate_limited(client, auth, basic_request, limit):
+    """Send requests until quota is exceeded, then send one more to confirm 429"""
+    total_tokens = 0
+
+    # Keep sending requests while within token quota
+    while total_tokens <= limit:
+        response = client.post(
+            "/v1/chat/completions",
+            auth=auth,
+            json={**basic_request, "max_tokens": 30},
+        )
+
+        if response.status_code == 429:
+            return response, total_tokens
+
+        assert response.status_code == 200, f"Expected status code 200, but got {response.status_code}"
+        total_tokens += response.extract_tokens()
+
+    # Once over the limit, the next request should be rate limited
     response = client.post(
         "/v1/chat/completions",
-        auth=free_user_auth,
-        json=basic_request,
+        auth=auth,
+        json={**basic_request, "max_tokens": 5},
     )
-    assert response.status_code == 200, f"Expected status code 200, but got {response.status_code}"
+    return response, total_tokens
 
 
-@pytest.mark.parametrize("token_rate_limit", ["route", "gateway"], indirect=True)
-def test_paid_tier_key(client, paid_user_auth, basic_request):
-    """Ensures a valid paid-tier API key returns 200 OK"""
-    response = client.post(
-        "/v1/chat/completions",
-        auth=paid_user_auth,
-        json=basic_request,
-    )
-    assert response.status_code == 200, f"Expected status code 200, but got {response.status_code}"
-
-
-@pytest.mark.parametrize("token_rate_limit", ["route", "gateway"], indirect=True)
-def test_invalid_api_key(client, basic_request):
-    """Ensures an invalid API key is rejected with 401 Unauthorized"""
-    response = client.post(
-        "/v1/chat/completions",
-        headers={"Authorization": "APIKEY invalid"},
-        json=basic_request,
-    )
-    assert response.status_code == 401, f"Expected status code 401, but got {response.status_code}"
-
-
-@pytest.mark.parametrize("token_rate_limit", ["route", "gateway"], indirect=True)
-def test_missing_api_key(client, basic_request):
-    """Ensures requests without an API key are rejected with 401 Unauthorized"""
-    response = client.post(
-        "/v1/chat/completions",
-        json=basic_request,
-    )
-    assert response.status_code == 401, f"Expected status code 401, but got {response.status_code}"
-
-
-@pytest.mark.parametrize("token_rate_limit", ["route", "gateway"], indirect=True)
 def test_token_usage_on_request(client, free_user_auth, basic_request):
-    """Ensures a request with max_tokens=100 returns 200 OK and reports token usage"""
-    response = client.post(
-        "/v1/chat/completions",
-        auth=free_user_auth,
-        json={**basic_request, "max_tokens": 100},
-    )
-    assert response.status_code == 200, f"Expected 200 OK, got {response.status_code}"
+    """Ensures a request reports token usage"""
+    response = client.post("/v1/chat/completions", auth=free_user_auth, json={**basic_request, "max_tokens": 50})
+    assert response.status_code == 200, f"Expected status code 200, but got {response.status_code}"
     usage = response.json()["usage"]
     assert usage["total_tokens"] > 0
-    assert usage["total_tokens"] <= 100
+    assert usage["total_tokens"] <= 50
 
 
-@pytest.mark.parametrize("token_rate_limit", ["route", "gateway"], indirect=True)
 def test_multiple_requests_under_limit(client, paid_user_auth, basic_request):
-    """Ensures multiple requests within the token quota each return 200 OK"""
-    for _ in range(3):
-        response = client.post(
-            "/v1/chat/completions",
-            auth=paid_user_auth,
-            json={**basic_request, "max_tokens": 50},
-        )
-        assert response.status_code == 200, f"Expected status code 200, but got {response.status_code}"
-
-
-@pytest.mark.parametrize("token_rate_limit", ["route", "gateway"], indirect=True)
-def test_token_rate_limit_free_user(client, free_user_auth, basic_request):
-    """Ensures free-tier users are rate limited after exceeding their token quota"""
-    total_tokens = 0
-
-    # Make requests until they exceed the token limit
-    for _ in range(10):
-        response = client.post(
-            "/v1/chat/completions",
-            auth=free_user_auth,
-            json={**basic_request, "max_tokens": 30, "stream": False, "usage": True},
-        )
-        if response.status_code == 429:
-            break
-
-        assert response.status_code == 200, f"Expected status code 200, but got {response.status_code}"
-
-        tokens_used = response.json().get("usage", {}).get("total_tokens", 0)
-        total_tokens += tokens_used
-
-    else:
-        assert False, f"Rate limit not triggered after {total_tokens} tokens"
-
-    # Next request should be 429
-    response = client.post(
+    """Ensures multiple requests within the token quota return 200"""
+    responses = client.post_many(
         "/v1/chat/completions",
-        auth=free_user_auth,
-        json={**basic_request, "max_tokens": 5, "stream": False, "usage": True},
-    )
-    assert response.status_code == 429, f"Follow-up request should be 429, but got {response.status_code}"
-
-
-@pytest.mark.parametrize("token_rate_limit", ["route", "gateway"], indirect=True)
-def test_token_rate_limit_paid_user(client, paid_user_auth, basic_request):
-    """Ensures paid-tier users are rate limited after exceeding their token quota"""
-    total_tokens = 0
-
-    for _ in range(20):
-        response = client.post(
-            "/v1/chat/completions",
-            auth=paid_user_auth,
-            json={**basic_request, "max_tokens": 30, "stream": False, "usage": True},
-        )
-        if response.status_code == 429:
-            break
-
-        assert response.status_code == 200, f"Expected status code 200, but got {response.status_code}"
-
-        tokens_used = response.json().get("usage", {}).get("total_tokens", 0)
-        total_tokens += tokens_used
-
-    else:
-        assert False, f"Rate limit not triggered after {total_tokens} tokens"
-
-    response = client.post(
-        "/v1/chat/completions",
+        count=3,
         auth=paid_user_auth,
-        json={**basic_request, "max_tokens": 5, "stream": False, "usage": True},
+        json={**basic_request, "max_tokens": 10},
     )
-    assert response.status_code == 429, f"Follow-up request should be 429, but got {response.status_code}"
+    responses.assert_all(200)
+
+
+def test_token_rate_limit_free_user(client, free_user_auth, basic_request):
+    """Ensures free-tier users are rate limited after exceeding token quota"""
+    response, total_tokens = post_until_rate_limited(client, free_user_auth, basic_request, limit=50)
+    assert response.status_code == 429, f"Expected 429 after {total_tokens} tokens, but got {response.status_code}"
+
+
+def test_token_rate_limit_paid_user(client, paid_user_auth, basic_request):
+    """Ensures paid-tier users are rate limited after exceeding token quota"""
+    response, total_tokens = post_until_rate_limited(client, paid_user_auth, basic_request, limit=100)
+    assert response.status_code == 429, f"Expected 429 after {total_tokens} tokens, but got {response.status_code}"

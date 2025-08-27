@@ -17,19 +17,17 @@ def user_label(blame):
 
 
 @pytest.fixture(scope="module")
-def free_user_api_key(create_api_key, user_label):
+def free_user_api_key(create_api_key, user_label, blame):
     """Creates API key Secret for a free user"""
-    annotations = {"kuadrant.io/groups": "free", "secret.kuadrant.io/user-id": "user-1"}
-    secret = create_api_key("api-key", user_label, "iamafreeuser", annotations=annotations)
-    return secret
+    annotations = {"kuadrant.io/groups": "free", "secret.kuadrant.io/user-id": blame("free-user")}
+    return create_api_key("api-key", user_label, "iamafreeuser", annotations=annotations)
 
 
 @pytest.fixture(scope="module")
-def paid_user_api_key(create_api_key, user_label):
+def paid_user_api_key(create_api_key, user_label, blame):
     """Creates API key Secret for a paid user"""
-    annotations = {"kuadrant.io/groups": "paid", "secret.kuadrant.io/user-id": "user-2"}
-    secret = create_api_key("api-key", user_label, "iamapaiduser", annotations=annotations)
-    return secret
+    annotations = {"kuadrant.io/groups": "paid", "secret.kuadrant.io/user-id": blame("paid-user")}
+    return create_api_key("api-key", user_label, "iamapaiduser", annotations=annotations)
 
 
 @pytest.fixture(scope="module")
@@ -44,7 +42,7 @@ def paid_user_auth(paid_user_api_key):
     return HeaderApiKeyAuth(paid_user_api_key)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def backend(request, cluster, blame, label, testconfig):
     """Deploys LlmSim backend"""
     image = testconfig["llm_sim"]["image"]
@@ -78,7 +76,7 @@ def authorization(authorization, free_user_api_key):
     return authorization
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="module", params=["route", "gateway"])
 def token_rate_limit(request, cluster, blame, module_label):
     """Creates TokenRateLimitPolicy for free and paid users"""
     target_ref = request.getfixturevalue(getattr(request, "param", "route"))
@@ -118,6 +116,8 @@ def basic_request(testconfig):
     return {
         "model": testconfig["llm_sim"]["model"],
         "messages": [{"role": "user", "content": "What is Kubernetes?"}],
+        "stream": False,  # this returns the full response at once (TRLP only supports non-streaming currently)
+        "usage": True,  # this includes `usage.total_tokens` in the response so TRLP can count tokens
     }
 
 

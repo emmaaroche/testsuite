@@ -92,6 +92,15 @@ class Result:
             return f"Result[status_code={self.response.status_code}]"
         return f"Result[error={self.error}]"
 
+    def extract_tokens(self) -> int:
+        """Extract total_tokens from an LLM response, or 0 if not present"""
+        if self.response is not None:
+            try:
+                return self.response.json().get("usage", {}).get("total_tokens", 0)
+            except (ValueError, TypeError, AttributeError):
+                return 0
+        return 0
+
 
 class ResultList(list):
     """List-like object for Result"""
@@ -192,6 +201,20 @@ class KuadrantClient(Client):
         responses = ResultList()
         for _ in range(count):
             responses.append(self.get(url, params=params, headers=headers, auth=auth))
+
+        return responses
+
+    def post_many(
+        self, url, count, *, content=None, data=None, files=None, json=None, params=None, headers=None, auth=None
+    ) -> ResultList:
+        """Send multiple `POST` requests."""
+        responses = ResultList()
+        for _ in range(count):
+            responses.append(
+                self.post(
+                    url, content=content, data=data, files=files, json=json, params=params, headers=headers, auth=auth
+                )
+            )
 
         return responses
 
